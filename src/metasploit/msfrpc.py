@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from httplib import HTTPConnection, HTTPSConnection
+from http.client import HTTPConnection, HTTPSConnection
 import ssl
 from numbers import Number
 
@@ -1330,7 +1330,7 @@ class MsfModule(object):
         self._info = rpc.call(MsfRpcMethod.ModuleInfo, mtype, mname)
         property_attributes = ["advanced", "evasion", "options", "required", "runoptions"]
         for k in self._info:
-            if k not in propery_attributes):
+            if k not in propery_attributes:
                 setattr(self, k, self._info.get(k))
         self._moptions = rpc.call(MsfRpcMethod.ModuleOptions, mtype, mname)
         self._roptions = []

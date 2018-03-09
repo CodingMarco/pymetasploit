@@ -4,7 +4,21 @@ from http.client import HTTPConnection, HTTPSConnection
 import ssl
 from numbers import Number
 
-from msgpack import packb, unpackb
+from msgpack import packb, unpackb as upb
+
+
+# python3 ghetto fix
+def unpackb(buf):
+    ret = upb(buf)
+    for k, v in ret.items():
+        if isinstance(k, bytes):
+            del ret[k]
+            ret[k.decode()] = v
+            k = k.decode()
+        if isinstance(v, bytes):
+            ret[k] = v.decode()
+    return ret
+
 
 __author__ = 'Nadeem Douba'
 __copyright__ = 'Copyright 2012, PyMetasploit Project'
@@ -230,7 +244,7 @@ class MsfRpcClient(object):
             self.client.request('POST', self.uri, packb(l), self._headers)
             r = self.client.getresponse()
             if r.status == 200:
-                return {str(key): str(value) for (key, value) in unpackb(r.read()).items()}
+                return unpackb(r.read())
             raise MsfRpcError('An unknown error has occurred while logging in.')
         elif self.authenticated:
             l.insert(1, self.sessionid)
@@ -1330,7 +1344,7 @@ class MsfModule(object):
         self._info = rpc.call(MsfRpcMethod.ModuleInfo, mtype, mname)
         property_attributes = ["advanced", "evasion", "options", "required", "runoptions"]
         for k in self._info:
-            if k not in propery_attributes:
+            if k not in property_attributes:
                 setattr(self, k, self._info.get(k))
         self._moptions = rpc.call(MsfRpcMethod.ModuleOptions, mtype, mname)
         self._roptions = []
@@ -1338,14 +1352,14 @@ class MsfModule(object):
         self._eoptions = []
         self._runopts = {}
         for o in self._moptions:
-            if self._moptions[o]['required']:
+            if self._moptions[o][b'required']:
                 self._roptions.append(o)
-            if self._moptions[o]['advanced']:
+            if self._moptions[o][b'advanced']:
                 self._aoptions.append(o)
-            if self._moptions[o]['evasion']:
+            if self._moptions[o][b'evasion']:
                 self._eoptions.append(o)
-            if 'default' in self._moptions[o]:
-                self._runopts[o] = self._moptions[o]['default']
+            if b'default' in self._moptions[o]:
+                self._runopts[o] = self._moptions[o][b'default']
 
     @property
     def options(self):
@@ -1416,11 +1430,11 @@ class MsfModule(object):
         """
         if key not in self.options:
             raise KeyError("Invalid option '%s'." % key)
-        elif 'enums' in self._moptions[key] and value not in self._moptions[key]['enums']:
-            raise ValueError("Value ('%s') is not one of %s" % (value, repr(self._moptions[key]['enums'])))
-        elif self._moptions[key]['type'] == 'bool' and not isinstance(value, bool):
+        elif 'enums' in self._moptions[key] and value not in self._moptions[key][b'enums']:
+            raise ValueError("Value ('%s') is not one of %s" % (value, repr(self._moptions[key][b'enums'])))
+        elif self._moptions[key][b'type'] == b'bool' and not isinstance(value, bool):
             raise TypeError("Value must be a boolean not '%s'" % type(value).__name__)
-        elif self._moptions[key]['type'] in ['integer', 'float'] and not isinstance(value, Number):
+        elif self._moptions[key][b'type'] in [b'integer', b'float'] and not isinstance(value, Number):
             raise TypeError("Value must be an integer not '%s'" % type(value).__name__)
         self._runopts[key] = value
 

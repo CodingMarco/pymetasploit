@@ -230,7 +230,7 @@ class MsfRpcClient(object):
             self.client.request('POST', self.uri, packb(l), self._headers)
             r = self.client.getresponse()
             if r.status == 200:
-                return unpackb(r.read())
+                return {str(key): str(value) for (key, value) in unpackb(r.read()).items()}
             raise MsfRpcError('An unknown error has occurred while logging in.')
         elif self.authenticated:
             l.insert(1, self.sessionid)

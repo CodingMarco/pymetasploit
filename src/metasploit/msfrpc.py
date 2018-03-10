@@ -95,6 +95,7 @@ class MsfRpcMethod(object):
     CoreStop = 'core.stop'
     CoreSetG = 'core.setg'
     CoreUnsetG = 'core.unsetg'
+    CoreGetG = 'core.getg'
     CoreSave = 'core.save'
     CoreReloadModules = 'core.reload_modules'
     CoreModuleStats = 'core.module_stats'
@@ -1282,6 +1283,15 @@ class CoreManager(MsfManager):
         """
         self.rpc.call(MsfRpcMethod.CoreUnsetG, var)
 
+    def getg(self, var):
+        """
+        Get a global variable
+
+        Mandatory Arguments:
+        - var : the variable name
+        """
+        return self.rpc.call(MsfRpcMethod.CoreGetG, var)
+
     def save(self):
         """
         Save the core state.
@@ -1396,6 +1406,7 @@ class MsfModule(object):
         if some of the required options are missing.
         """
         outstanding = set(self.required).difference(self._runopts.keys())
+        outstanding = [i for i in outstanding if not self.rpc.core.getg(i)]
         if outstanding:
             raise TypeError('Module missing required parameter: %s' % ', '.join(outstanding))
         return self._runopts

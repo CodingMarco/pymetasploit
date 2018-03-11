@@ -4,10 +4,11 @@ from http.client import HTTPConnection, HTTPSConnection
 import ssl
 from numbers import Number
 
-from msgpack import packb, unpackb as upb
+from msgpack import packb, unpackb
 
 
 # python3 ghetto fix
+'''
 def unpackb(buf):
     ret = upb(buf)
     for k, v in ret.items():
@@ -18,6 +19,7 @@ def unpackb(buf):
         if isinstance(v, bytes):
             ret[k] = v.decode()
     return ret
+'''
 
 
 __author__ = 'Nadeem Douba'
@@ -218,6 +220,8 @@ class MsfRpcClient(object):
         self.ssl = kwargs.get('ssl', True)
         self.verify_ssl = kwargs.get('verify', False)
         self.sessionid = kwargs.get('token')
+        self.password = password
+        self.username = kwargs.get('username', 'msf')
         if self.ssl:
             if self.verify_ssl:
                 self.client = HTTPSConnection(self.server, self.port)
@@ -225,7 +229,7 @@ class MsfRpcClient(object):
                 self.client = HTTPSConnection(self.server, self.port, context=ssl._create_unverified_context())
         else:
             self.client = HTTPConnection(self.server, self.port)
-        self.login(kwargs.get('username', 'msf'), password)
+        self.login(self.username, password)
 
     def call(self, method, *args):
         """
@@ -253,8 +257,12 @@ class MsfRpcClient(object):
             r = self.client.getresponse()
             if r.status == 200:
                 result = unpackb(r.read())
-                if 'error' in result:
-                    raise MsfRpcError(result['error_message'])
+                if b'error' in result:
+                    if result[b'error_message'] == b"Invalid Authentication Token":
+                        self.sessionid = None
+                        self.login(self.username, self.password)
+                        return self.call(method, *args)
+                    raise MsfRpcError(result[b'error_message'])
                 return result
             raise MsfRpcError('An unknown error has occurred while performing the RPC call.')
         raise MsfRpcError('You cannot perform this call because you are not authenticated.')
@@ -329,8 +337,8 @@ class MsfRpcClient(object):
         if self.sessionid is None:
             r = self.call(MsfRpcMethod.AuthLogin, username, password)
             try:
-                if r['result'] == 'success':
-                    self.sessionid = r['token']
+                if r[b'result'] == b'success':
+                    self.sessionid = r[b'token']
             except KeyError:
                 raise MsfRpcError('Login failed.')
         else:
@@ -1013,7 +1021,7 @@ class WorkspaceManager(MsfManager):
         """
         The list of all workspaces in the current msf database.
         """
-        return self.rpc.call(MsfRpcMethod.DbWorkspaces)['workspaces']
+        return self.rpc.call(MsfRpcMethod.DbWorkspaces)[b'workspaces']
 
     def workspace(self, name='default'):
         """
@@ -1043,7 +1051,7 @@ class WorkspaceManager(MsfManager):
         Mandatory Arguments:
         - name : the name of the workspace
         """
-        return self.rpc.call(MsfRpcMethod.DbGetWorkspace, name)['workspace']
+        return self.rpc.call(MsfRpcMethod.DbGetWorkspace, name)[b'workspace']
 
     def remove(self, name):
         """
@@ -1068,7 +1076,7 @@ class WorkspaceManager(MsfManager):
         """
         The current workspace.
         """
-        return self.workspace(self.rpc.call(MsfRpcMethod.DbCurrentWorkspace)['workspace'])
+        return self.workspace(self.rpc.call(MsfRpcMethod.DbCurrentWorkspace)[b'workspace'])
 
 
 class DbManager(MsfManager):
@@ -1089,14 +1097,14 @@ class DbManager(MsfManager):
         """
         runopts = { 'username': username, 'database' : database }
         runopts.update(kwargs)
-        return self.rpc.call(MsfRpcMethod.DbConnect, runopts)['result'] == 'success'
+        return self.rpc.call(MsfRpcMethod.DbConnect, runopts)[b'result'] == b'success'
 
     @property
     def driver(self):
         """
         The current database driver in use.
         """
-        return self.rpc.call(MsfRpcMethod.DbDriver, {})['driver']
+        return self.rpc.call(MsfRpcMethod.DbDriver, {})[b'driver']
 
     @driver.setter
     def driver(self, d):
@@ -1127,7 +1135,7 @@ class DbManager(MsfManager):
         """
         The name of the current workspace.
         """
-        return self.rpc.call(MsfRpcMethod.DbCurrentWorkspace)['workspace']
+        return self.rpc.call(MsfRpcMethod.DbCurrentWorkspace)[b'workspace']
 
     @workspace.setter
     def workspace(self, w):
@@ -1166,7 +1174,7 @@ class AuthManager(MsfManager):
         """
         The current list of active session IDs.
         """
-        return self.rpc.call(MsfRpcMethod.AuthTokenList)['tokens']
+        return self.rpc.call(MsfRpcMethod.AuthTokenList)[b'tokens']
 
     def add(self, token):
         """
@@ -1190,7 +1198,7 @@ class AuthManager(MsfManager):
         """
         Generate a session ID or token.
         """
-        return self.rpc.call(MsfRpcMethod.AuthTokenGenerate)['token']
+        return self.rpc.call(MsfRpcMethod.AuthTokenGenerate)[b'token']
 
 
 class PluginManager(MsfManager):
@@ -1200,7 +1208,7 @@ class PluginManager(MsfManager):
         """
         A list of loaded plugins.
         """
-        return self.rpc.call(MsfRpcMethod.PluginLoaded)['plugins']
+        return self.rpc.call(MsfRpcMethod.PluginLoaded)[b'plugins']
 
     def load(self, plugin):
         """
@@ -1352,10 +1360,10 @@ class MsfModule(object):
         self.modulename = mname
         self.rpc = rpc
         self._info = rpc.call(MsfRpcMethod.ModuleInfo, mtype, mname)
-        property_attributes = ["advanced", "evasion", "options", "required", "runoptions"]
+        property_attributes = [b"advanced", b"evasion", b"options", b"required", b"runoptions"]
         for k in self._info:
             if k not in property_attributes:
-                setattr(self, k, self._info.get(k))
+                setattr(self, k.decode('ascii'), self._info.get(k))
         self._moptions = rpc.call(MsfRpcMethod.ModuleOptions, mtype, mname)
         self._roptions = []
         self._aoptions = []
@@ -1523,7 +1531,7 @@ class ExploitModule(MsfModule):
         """
         A list of compatible payloads.
         """
-#        return self.rpc.call(MsfRpcMethod.ModuleCompatiblePayloads, self.modulename)['payloads']
+#        return self.rpc.call(MsfRpcMethod.ModuleCompatiblePayloads, self.modulename)[b'payloads']
         return self.targetpayloads(self.target)
 
     @property
@@ -1543,7 +1551,7 @@ class ExploitModule(MsfModule):
         Optional Keyword Arguments:
         - t : the target ID (default: 0, e.g. 'Automatic')
         """
-        return self.rpc.call(MsfRpcMethod.ModuleTargetCompatiblePayloads, self.modulename, t)['payloads']
+        return self.rpc.call(MsfRpcMethod.ModuleTargetCompatiblePayloads, self.modulename, t)[b'payloads']
 
 
 class PostModule(MsfModule):
@@ -1638,28 +1646,28 @@ class ModuleManager(MsfManager):
         """
         A list of exploit modules.
         """
-        return self.rpc.call(MsfRpcMethod.ModuleExploits)['modules']
+        return self.rpc.call(MsfRpcMethod.ModuleExploits)[b'modules']
 
     @property
     def payloads(self):
         """
         A list of payload modules.
         """
-        return self.rpc.call(MsfRpcMethod.ModulePayloads)['modules']
+        return self.rpc.call(MsfRpcMethod.ModulePayloads)[b'modules']
 
     @property
     def auxiliary(self):
         """
         A list of auxiliary modules.
         """
-        return self.rpc.call(MsfRpcMethod.ModuleAuxiliary)['modules']
+        return self.rpc.call(MsfRpcMethod.ModuleAuxiliary)[b'modules']
 
     @property
     def post(self):
         """
         A list of post modules.
         """
-        return self.rpc.call(MsfRpcMethod.ModulePost)['modules']
+        return self.rpc.call(MsfRpcMethod.ModulePost)[b'modules']
 
     @property
     def encodeformats(self):
@@ -1673,14 +1681,14 @@ class ModuleManager(MsfManager):
         """
         A list of encoder modules.
         """
-        return self.rpc.call(MsfRpcMethod.ModuleEncoders)['modules']
+        return self.rpc.call(MsfRpcMethod.ModuleEncoders)[b'modules']
 
     @property
     def nops(self):
         """
         A list of nop modules.
         """
-        return self.rpc.call(MsfRpcMethod.ModuleNops)['modules']
+        return self.rpc.call(MsfRpcMethod.ModuleNops)[b'modules']
 
     def use(self, mtype, mname):
         """
@@ -1730,7 +1738,7 @@ class MsfSession(object):
         """
         A list of compatible session modules.
         """
-        return self.rpc.call(MsfRpcMethod.SessionCompatibleModules, self.id)['modules']
+        return self.rpc.call(MsfRpcMethod.SessionCompatibleModules, self.id)[b'modules']
 
     @property
     def ring(self):
@@ -1768,7 +1776,7 @@ class SessionRing(object):
         """
         Returns the last sequence ID in the session ring.
         """
-        return int(self.rpc.call(MsfRpcMethod.SessionRingLast, self.id)['seq'])
+        return int(self.rpc.call(MsfRpcMethod.SessionRingLast, self.id)[b'seq'])
 
     def clear(self):
         """
@@ -1783,7 +1791,7 @@ class MeterpreterSession(MsfSession):
         """
         Read data from the meterpreter session.
         """
-        return self.rpc.call(MsfRpcMethod.SessionMeterpreterRead, self.id)['data']
+        return self.rpc.call(MsfRpcMethod.SessionMeterpreterRead, self.id)[b'data']
 
     def write(self, data):
         """
@@ -1819,7 +1827,7 @@ class MeterpreterSession(MsfSession):
         """
         The operating system path separator.
         """
-        return self.rpc.call(MsfRpcMethod.SessionMeterpreterDirectorySeparator, self.id)['separator']
+        return self.rpc.call(MsfRpcMethod.SessionMeterpreterDirectorySeparator, self.id)[b'separator']
 
     def detach(self):
         """
@@ -1840,7 +1848,7 @@ class MeterpreterSession(MsfSession):
         Mandatory Arguments:
         - line : a partial command line for completion.
         """
-        return self.rpc.call(MsfRpcMethod.SessionMeterpreterTabs, self.id, line)['tabs']
+        return self.rpc.call(MsfRpcMethod.SessionMeterpreterTabs, self.id, line)[b'tabs']
 
 
 class ShellSession(MsfSession):
@@ -1849,7 +1857,7 @@ class ShellSession(MsfSession):
         """
         Read data from the shell session.
         """
-        return self.rpc.call(MsfRpcMethod.SessionShellRead, self.id)['data']
+        return self.rpc.call(MsfRpcMethod.SessionShellRead, self.id)[b'data']
 
     def write(self, data):
         """
@@ -1887,17 +1895,17 @@ class SessionManager(MsfManager):
         s = self.list
         if id not in s:
             for k in s:
-                if s[k]['uuid'] == id:
-                    if s[id]['type'] == 'meterpreter':
+                if s[k][b'uuid'] == id:
+                    if s[id][b'type'] == b'meterpreter':
                         return MeterpreterSession(id, self.rpc, s)
-                    elif s[id]['type']  == 'shell':
+                    elif s[id][b'type']  == b'shell':
                         return ShellSession(id, self.rpc, s)
             raise KeyError('Session ID (%s) does not exist' % id)
-        if s[id]['type'] == 'meterpreter':
+        if s[id][b'type'] == b'meterpreter':
             return MeterpreterSession(id, self.rpc, s)
-        elif s[id]['type']  == 'shell':
+        elif s[id][b'type']  == b'shell':
             return ShellSession(id, self.rpc, s)
-        raise NotImplementedError('Could not determine session type: %s' % s[id]['type'])
+        raise NotImplementedError('Could not determine session type: %s' % s[id][b'type'])
 
 
 class MsfConsole(object):
@@ -1915,8 +1923,8 @@ class MsfConsole(object):
         self.rpc = rpc
         if cid is None:
             r = self.rpc.call(MsfRpcMethod.ConsoleCreate)
-            if 'id' in r:
-                self.cid = r['id']
+            if b'id' in r:
+                self.cid = r[b'id']
             else:
                 raise MsfRpcError('Unable to create a new console.')
         else:
@@ -1955,7 +1963,7 @@ class MsfConsole(object):
         Mandatory Arguments:
         - line : a partial command to be completed.
         """
-        return self.rpc.call(MsfRpcMethod.ConsoleTabs, self.cid, line)['tabs']
+        return self.rpc.call(MsfRpcMethod.ConsoleTabs, self.cid, line)[b'tabs']
 
     def destroy(self):
         """
@@ -1971,7 +1979,7 @@ class ConsoleManager(MsfManager):
         """
         A list of active consoles.
         """
-        return self.rpc.call(MsfRpcMethod.ConsoleList)['consoles']
+        return self.rpc.call(MsfRpcMethod.ConsoleList)[b'consoles']
 
     def console(self, cid=None):
         """
@@ -1980,7 +1988,7 @@ class ConsoleManager(MsfManager):
         Optional Keyword Arguments:
         - cid : the console identifier.
         """
-        s = [x['id'] for x in self.list['consoles']]
+        s = [x[b'id'] for x in self.list[b'consoles']]
         if cid is None:
             return MsfConsole(self.rpc)
         if cid not in s:

